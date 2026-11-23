@@ -422,6 +422,12 @@ table.sheet td.pkyes{background:var(--doneink, #2E6B2A)!important;color:#fff!imp
 @media (max-width:560px){ .brand.top>div:nth-child(2){border-left:0;padding-left:0} .brand.top b{font-size:15px} .brand.top .logo,.brand.top .logo img{height:28px} }
 /* Shop Welds has two header buttons (Alerts and Refresh), so on a phone the header tightens up to fit */
 @media (max-width:560px){ .brand.top{gap:8px} .brand.top .eyebrow{display:none} .brand.top .btn{padding:8px 10px;font-size:13px;min-height:0;min-width:0} .brand.top b{font-size:13px} }
+.cpwrap{background:#fff;border:1px solid #D3DCE5;border-radius:14px;padding:14px 16px;margin:0 0 14px}
+.cphead{font-weight:800;font-size:18px;margin-bottom:6px}
+.cphead small{display:block;font-weight:500;font-size:13px;color:#6B7C8A;margin-top:2px}
+.cprail{margin-top:10px}
+.cprail>b{display:block;font-size:15px;color:#16445F;margin-bottom:2px}
+.cpsvg{width:100%;height:auto;display:block;margin:0 auto;font-family:var(--font)}
 </style>
 </head><body>
 
@@ -944,7 +950,7 @@ function wId(id){ return id + '.w'; }
 var el = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 // a short notice at the bottom of the screen
-var VERSION = '11.19.1530', toastT = null;
+var VERSION = '11.23.718', toastT = null;
 function toast(t){ var b = el('toast'); b.textContent = t; b.hidden = false; b.classList.remove('out'); clearTimeout(toastT); toastT = setTimeout(function(){ b.classList.add('out'); setTimeout(function(){ b.hidden = true; }, 400); }, 3200); }
 function msg(t, ok){ var m = el('msg'); m.hidden = !t; m.className = 'msg ' + (ok ? 'ok' : 'err'); m.textContent = t || ''; }
 function lsGet(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
@@ -1861,6 +1867,56 @@ function fencePlates(item){
     return '<tr class="data"><td class="bp"><span class="bpw">' + bpIcon(x.code, 'R') + '<span>' + esc(x.name) + '<small class="bpd">' + esc(x.sub) + '</small></span></span></td><td class="c num"><b>' + x.q + '</b></td><td>' + esc(x.how) + '</td></tr>';
   }).join('') + '</table>';
 }
+// Custom posts tab (Shop Welds, top mount): a top-down diagram per rail, posts left end → right end, each with its base plate
+// turned and slid the way it's welded. Codes from the Custom Posts sheet: E-Off/Cen/Rev-L|R (ends), M-Off/Cen/Rev-L|R and
+// Mid-Cen (mids), EC/IC/FC/Joint-Cen (corners and joints, centered), FL … (float posts, no plate).
+function cpPlate(code, pos){
+  var c = String(code || '').trim(), m;
+  if (/^FL\b/i.test(c)) return { k: 'none', what: 'Float post · no plate' };
+  if ((m = /^E-(Off|Cen|Rev)-(L|R)$/i.exec(c))) return { k: m[1].toLowerCase(), end: m[2].toUpperCase(), what: 'End · ' + { off: 'offset', cen: 'centered', rev: 'reverse offset' }[m[1].toLowerCase()] };
+  if ((m = /^M(?:id)?-(Off|Rev)-(L|R)$/i.exec(c))) return { k: 'mid' + m[1].toLowerCase(), side: m[2].toUpperCase(), what: 'Mid · ' + (m[1].toLowerCase() === 'rev' ? 'reverse offset ' : 'offset ') + (m[2].toUpperCase() === 'L' ? 'left' : 'right') };
+  if (/^M(?:id)?-Cen$/i.test(c)) return { k: 'cen', what: 'Mid · centered' };
+  if (/^(EC|IC|FC)-Cen$/i.test(c)) return { k: 'cen', what: (/^IC/i.test(c) ? 'Inside corner' : /^FC/i.test(c) ? 'Flat corner' : 'Corner') + ' · centered' };
+  if (/^(Joint-Cen|CJ)$/i.test(c)) return { k: 'cen', what: 'Joint · centered' };
+  return { k: 'unk', what: c ? 'Check the cut sheet' : '' };
+}
+function customPlates(item){
+  if (!WELD || !item || !item.sh || item.sh.name !== 'CUSTOM POST CUT') return '';
+  var sd = item.sd, v = function(r, c){ var x = cellVal(sd, r, c); return x == null ? '' : String(x).trim(); };
+  var rails = [], curR = null, hdr = 0;
+  for (var r = 1; r <= (sd.maxR || 300); r++){
+    var a = v(r, 1);
+    if (/^post\s*#?$/i.test(a)){ hdr = r; continue; }
+    if (!hdr || !a) continue;
+    if (/^post\s+\d+/i.test(a)){ if (!curR){ curR = { name: '', posts: [] }; rails.push(curR); } curR.posts.push({ n: a.replace(/^post\s+/i, ''), pos: v(r, 2), code: v(r, 3), mount: v(r, 4) }); }
+    else { curR = { name: a, posts: [] }; rails.push(curR); }
+  }
+  var jobTop = isTop();
+  rails = rails.filter(function(rl){ return rl.posts.some(function(p){ return p.mount ? /^top/i.test(p.mount) : jobTop; }); });
+  if (!rails.length) return '';
+  return '<div class="cpwrap"><div class="cphead">Base plate orientation <small>Looking down from above · rail runs left end → right end · posts not to scale</small></div>' + rails.map(function(rl){
+    var n = rl.posts.length, W = Math.max(640, n * 230), H = 230, M = 115, gap = (W - 2 * M) / Math.max(1, n - 1), y = 82, P = 26, B = 72;
+    var xs = rl.posts.map(function(p, i){ return n === 1 ? W / 2 : M + i * gap; });
+    var svg = '<svg class="cpsvg" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + Math.min(W * 1.4, 1100) + 'px" role="img" aria-label="Base plate orientation, rail ' + esc(rl.name) + '">';
+    svg += '<line x1="' + xs[0] + '" y1="' + y + '" x2="' + xs[n - 1] + '" y2="' + y + '" stroke="#9FB6D3" stroke-width="10" stroke-linecap="round"/>';
+    rl.posts.forEach(function(p, i){
+      var x = xs[i], pl = cpPlate(p.code, p.pos), top = p.mount ? /^top/i.test(p.mount) : jobTop, sh = 0, d = (B - P) / 2 - 3;
+      // end offset: the plate reaches in under the rail; reverse: out past the end. Mid offset L/R: the post sits at that side of the plate.
+      if (pl.k === 'off') sh = pl.end === 'L' ? d : -d;
+      else if (pl.k === 'rev') sh = pl.end === 'L' ? -d : d;
+      else if (pl.k === 'midoff') sh = pl.side === 'L' ? d : -d;
+      else if (pl.k === 'midrev') sh = pl.side === 'L' ? -d : d;
+      if (top && pl.k !== 'none' && pl.k !== 'unk') svg += '<rect x="' + (x + sh - B / 2) + '" y="' + (y - B / 2) + '" width="' + B + '" height="' + B + '" rx="5" fill="#E7EDF3" stroke="#5B6F80" stroke-width="2.5"/>' +
+        '<circle cx="' + (x + sh - B / 2 + 9) + '" cy="' + (y - B / 2 + 11) + '" r="4" fill="#5B6F80"/><circle cx="' + (x + sh + B / 2 - 9) + '" cy="' + (y - B / 2 + 11) + '" r="4" fill="#5B6F80"/><circle cx="' + (x + sh - B / 2 + 9) + '" cy="' + (y + B / 2 - 11) + '" r="4" fill="#5B6F80"/><circle cx="' + (x + sh + B / 2 - 9) + '" cy="' + (y + B / 2 - 11) + '" r="4" fill="#5B6F80"/>';
+      svg += pl.k === 'none' ? '<rect x="' + (x - P / 2) + '" y="' + (y - P / 2) + '" width="' + P + '" height="' + P + '" fill="#fff" stroke="#16445F" stroke-width="3" stroke-dasharray="5 4"/>'
+                             : '<rect x="' + (x - P / 2) + '" y="' + (y - P / 2) + '" width="' + P + '" height="' + P + '" fill="#16445F"/>';
+      svg += '<text x="' + x + '" y="' + (y + 64) + '" text-anchor="middle" font-size="20" font-weight="800" fill="#13232F">Post ' + esc(p.n) + '</text>' +
+             '<text x="' + x + '" y="' + (y + 90) + '" text-anchor="middle" font-size="16" font-weight="600" fill="' + (pl.k === 'unk' ? '#9C0006' : '#3C4E5C') + '">' + esc(top ? pl.what : 'Not top mount · ' + p.mount) + '</text>' +
+             '<text x="' + x + '" y="' + (y + 112) + '" text-anchor="middle" font-size="15" fill="#6B7C8A">' + esc(p.code) + '</text>';
+    });
+    return '<div class="cprail"><b>' + esc(rl.name || 'Custom posts') + '</b>' + svg + '</svg></div>';
+  }).join('') + '</div>';
+}
 function renderSheet(book, item, done){
   var L = item.L, sd = item.sd, sh = item.sh, pre = sh.name + '|';
   var vis = {}; L.rows.forEach(function(r, i){ vis['r' + r] = i; }); L.cols.forEach(function(c, i){ vis['c' + c] = i; });
@@ -1873,7 +1929,7 @@ function renderSheet(book, item, done){
   });
   var plateRows = '';
   var rmk = cur && cur.f.remake && sh.name === 'CUT SHEET' ? cur.f.remake : null;
-  var h = (rmk ? '<div class="rmbanner"><b>↻ Remake · ' + esc(rmk.tags.join(', ')) + '</b>' + (rmk.note ? '<span>' + esc(rmk.note) + '</span>' : '') + '</div>' : '') + (L.fence ? fenceHead(book, item) : '') + (fenceTop(item) ? fencePlates(item) : '') + '<table class="sheet' + (L.fence ? ' fence' : '') + '">' + (L.fence ? '<tr hidden></tr>' : '');
+  var h = (rmk ? '<div class="rmbanner"><b>↻ Remake · ' + esc(rmk.tags.join(', ')) + '</b>' + (rmk.note ? '<span>' + esc(rmk.note) + '</span>' : '') + '</div>' : '') + (L.fence ? fenceHead(book, item) : '') + (fenceTop(item) ? fencePlates(item) : '') + customPlates(item) + '<table class="sheet' + (L.fence ? ' fence' : '') + '">' + (L.fence ? '<tr hidden></tr>' : '');
   // fences: the layout sits in its own table just above the cut list, so the cut list's stripes still line up with Dave's tablet
   // fences: Pickets cut by Fab (red / green) then the layout, above the cut list. The hidden row keeps the stripes in line with Dave's tablet, where his sort bar sits.
   if (L.fence) h = h.replace('<table class="sheet fence">', '<div class="pkwrap">' + pkBanner() + '</div>' + (cur && cur.units && cur.units.Fence ? '<table class="sheet laytab">' + layoutRow('Fence', 1) + '</table>' : '') + '<table class="sheet fence">');   // stands in for Shop Cuts' sort row, so the stripes line up with Dave's tablet
